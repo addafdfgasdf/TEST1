@@ -1,1 +1,1 @@
-return { active = true }
+{ active = true }
