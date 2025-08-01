@@ -406,3 +406,136 @@ for i = 1, 999999999999999999999999999999999999999999999999999999999999999999999
         waitSeconds(0.01) -- Пауза между полными циклами
     end
 end
+
+wait(1)
+
+-- Freeze Script (работает после смерти)
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local function freezePlayer(player)
+    local character = player.Character or player.CharacterAdded:Wait()
+    
+    -- Функция для применения Freeze
+    local function applyFreeze(char)
+        if not char then return end
+        
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.Anchored = true  -- Замораживаем часть
+                part.Velocity = Vector3.new(0, 0, 0)
+                part.RotVelocity = Vector3.new(0, 0, 0)
+            end
+        end
+    end
+    
+    -- Применяем Freeze к текущему персонажу
+    applyFreeze(character)
+    
+    -- Следим за изменением персонажа (после респауна)
+    player.CharacterAdded:Connect(function(newCharacter)
+        wait(0.1) -- Небольшая задержка для загрузки персонажа
+        applyFreeze(newCharacter)
+    end)
+    
+    -- Непрерывная проверка (дополнительная страховка)
+    local connection
+    connection = RunService.Heartbeat:Connect(function()
+        local currentChar = player.Character
+        if currentChar then
+            for _, part in pairs(currentChar:GetDescendants()) do
+                if part:IsA("BasePart") and not part.Anchored then
+                    part.Anchored = true
+                    part.Velocity = Vector3.new(0, 0, 0)
+                    part.RotVelocity = Vector3.new(0, 0, 0)
+                end
+            end
+        end
+    end)
+    
+    -- Возвращаем функцию для остановки Freeze
+    return function()
+        if connection then
+            connection:Disconnect()
+        end
+    end
+end
+
+-- Пример использования:
+-- Заморозить конкретного игрока
+local targetPlayer = Players:FindFirstChild("PlayerName") -- Замените на имя игрока
+if targetPlayer then
+    local unfreezeFunction = freezePlayer(targetPlayer)
+    -- unfreezeFunction() -- Вызовите эту функцию для разморозки
+end
+
+-- Или заморозить всех игроков
+for _, player in pairs(Players:GetPlayers()) do
+    freezePlayer(player)
+end
+
+-- Автоматически замораживать новых игроков
+Players.PlayerAdded:Connect(function(player)
+    freezePlayer(player)
+end)
+
+wait(1)
+
+-- Ждём необходимые сервисы
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Events = ReplicatedStorage:WaitForChild("Events")
+local ClickEvent = Events:WaitForChild("Click")
+
+
+wait(1)
+
+-- === Автоэкипировка ===
+local TOGGLE_KEY = Enum.KeyCode.Y
+local TOOL_PRIORITY = {
+    "Maus",
+    "M1 Abrams",
+    "Pine Tree",
+    "King Slayer",
+}
+local isRunning = true
+local function EquipTool()
+    if not isRunning then return end
+    local Character = player.Character or player.CharacterAdded:Wait()
+    local Backpack = player:FindFirstChildOfClass("Backpack")
+    local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+    if not Backpack or not Humanoid then return end
+    for _, toolName in ipairs(TOOL_PRIORITY) do
+        local Tool = Backpack:FindFirstChild(toolName) or Character:FindFirstChild(toolName)
+        if Tool and Tool:IsA("Tool") then
+            if not Character:FindFirstChild(Tool.Name) then
+                Humanoid:EquipTool(Tool)
+                print("🔹 [Auto-Equip] Взят: " .. Tool.Name)
+            end
+            return
+        end
+    end
+end
+
+player.CharacterAdded:Connect(function()
+    task.wait(2)
+    if isRunning then
+        EquipTool()
+    end
+end)
+
+RunService.Heartbeat:Connect(function()
+    if isRunning then
+        EquipTool()
+        task.wait(1.5)
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(Input, _)
+    if Input.KeyCode == TOGGLE_KEY then
+        isRunning = not isRunning
+        print(isRunning and "🟢 [Auto-Equip] Включено" or "🔴 [Auto-Equip] Выключено")
+    end
+end)
+
+EquipTool()
+print("🛠 [Auto-Equip] Готово! Нажми Y для включения/выключения.")
