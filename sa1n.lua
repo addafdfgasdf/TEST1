@@ -407,8 +407,6 @@ for i = 1, 999999999999999999999999999999999999999999999999999999999999999999999
     end
 end
 
-wait(1)
-
 -- === Автоэкипировка ===
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -427,7 +425,7 @@ local isRunning = true
 
 local function EquipTool()
     if not isRunning then return end
-    local Character = player.Character or player.CharacterAdded:Wait()
+    local Character = player.Character or player.CharacterAdded:Wait()    
     local Backpack = player:FindFirstChildOfClass("Backpack")
     local Humanoid = Character:FindFirstChildOfClass("Humanoid")
     if not Backpack or not Humanoid then return end
@@ -480,8 +478,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Events = ReplicatedStorage:WaitForChild("Events")
 local ClickEvent = Events:WaitForChild("Click")
 
-
-wait(1)
 
 -- === Скрипт заморозки игрока ===
 local Players = game:GetService("Players")
