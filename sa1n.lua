@@ -151,7 +151,7 @@ local function autoShoot()
             }
         }
         MainAttackEvent:FireServer(unpack(explodeArgs))
-        print(`🎯 Стреляем по {npc.Name} на расстоянии {math.floor((targetPart.Position - origin).Magnitude)} стадий`)
+        print(`Стреляем по {npc.Name} на расстоянии {math.floor((targetPart.Position - origin).Magnitude)} стадий`)
     end)
 end
 
