@@ -1,116 +1,154 @@
 -- Сервисы
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
-local Players = game:GetService("Players")
+
 local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
 
--- Путь к NPCFolder
-local function getNPCFolder()
-    local GAME = Workspace:FindFirstChild("#GAME")
-    return GAME and GAME:FindFirstChild("Folders") 
-        and GAME.Folders:FindFirstChild("HumanoidFolder") 
-        and GAME.Folders.HumanoidFolder:FindFirstChild("NPCFolder")
-end
+-- Пути
+local gameFolder = Workspace:WaitForChild("#GAME", 10)
+local foldersFolder = gameFolder and gameFolder:WaitForChild("Folders", 5)
+local humanoidFolder = foldersFolder and foldersFolder:WaitForChild("HumanoidFolder", 5)
+local NPCFolder = humanoidFolder and humanoidFolder:WaitForChild("NPCFolder", 5)
 
--- Аксессуар пушки (нужен для T)
+local eventsFolder = ReplicatedStorage:WaitForChild("Events", 10)
+local MainAttackEvent = eventsFolder and eventsFolder:WaitForChild("MainAttack", 5)
+
 local function getGun()
-    local GAME = Workspace:FindFirstChild("#GAME")
-    return GAME and GAME:FindFirstChild("Folders") 
-        and GAME.Folders:FindFirstChild("AccessoryFolder") 
-        and GAME.Folders.AccessoryFolder:FindFirstChild("The Eggsterminator")
+    return gameFolder and gameFolder:FindFirstChild("Folders") 
+        and gameFolder.Folders:FindFirstChild("AccessoryFolder") 
+        and gameFolder.Folders.AccessoryFolder:FindFirstChild("The Eggsterminator")
 end
 
--- Событие
-local MainAttackEvent = ReplicatedStorage:WaitForChild("Events"):WaitForChild("MainAttack")
-
--- Позиция игрока (для SP, HP, RS, O)
-local function getPlayerShootOrigin()
-    local char = LocalPlayer.Character
-    if not char then return Vector3.zero end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    return hrp and hrp.CFrame * Vector3.new(0, 5, -5) or Vector3.zero
+-- 🔍 Проверка: "живая" ли часть (не оторвана, не едят)
+local function isDeadPart(part)
+    if not part or not part.Parent then return true end
+    if not part:IsDescendantOf(Workspace) then return true end
+    if part:GetAttribute("IsGettingEaten") then return true end
+    return false
 end
 
--- Основная функция: авто-выстрел + взрыв по NPC
-local function autoShoot()
-    if not LocalPlayer.Character then return end
+-- 🔍 Получаем список NPC, по которым можно стрелять
+local function getValidTargets()
+    local validTargets = {}
+    if not NPCFolder then return validTargets end
 
-    local gun = getGun()
-    if not gun then
-        warn("Пушка 'The Eggsterminator' не найдена!")
-        return
-    end
+    for _, npc in ipairs(NPCFolder:GetChildren()) do
+        if not npc:IsA("Model") then continue end
 
-    local npcFolder = getNPCFolder()
-    if not npcFolder then
-        warn("NPCFolder не найдена!")
-        return
-    end
+        -- Игнорируем по имени
+        if string.find(npc.Name, "Dead", 1, true) or npc.Name == "CrackedBas" then
+            continue
+        end
 
-    -- Ищем ближайшего NPC (кроме CrackedBas)
-    local targetPosition = Vector3.new(0, 0, -200)
-    local foundTarget = false
-    local closestDist = math.huge
-    local myHrp = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    local myPos = myHrp and myHrp.Position or Vector3.zero
+        -- Проверяем жив ли NPC
+        local humanoid = npc:FindFirstChildOfClass("Humanoid")
+        if not humanoid or humanoid.Health <= 0 then
+            continue
+        end
 
-    for _, npc in ipairs(npcFolder:GetChildren()) do
-        if npc.Name == "CrackedBas" then continue end
-        local hrp = npc:FindFirstChild("HumanoidRootPart")
-        local humanoid = npc:FindFirstChild("Humanoid")
-        if hrp and humanoid and humanoid.Health > 0 then
-            local dist = (hrp.Position - myPos).Magnitude
-            if dist < closestDist then
-                closestDist = dist
-                targetPosition = hrp.Position
-                foundTarget = true
-            end
+        -- Ищем HumanoidRootPart (или Torso / UpperTorso)
+        local targetPart = npc:FindFirstChild("HumanoidRootPart")
+            or npc:FindFirstChild("Torso")
+            or npc:FindFirstChild("UpperTorso")
+
+        if targetPart and not isDeadPart(targetPart) then
+            table.insert(validTargets, {
+                NPC = npc,
+                Part = targetPart
+            })
         end
     end
 
-    if not foundTarget then
-        warn("Нет подходящих NPC для атаки.")
-        return
+    return validTargets
+end
+
+-- Позиция выстрела
+local function getShootOrigin()
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    return hrp and hrp.Position + Vector3.new(0, 2, 0) or Camera.CFrame.Position
+end
+
+-- Основная функция
+local function autoShoot()
+    if not LocalPlayer.Character or not MainAttackEvent then return end
+
+    local gun = getGun()
+    if not gun then return end
+
+    -- Получаем валидные цели с живым HumanoidRootPart
+    local validTargets = getValidTargets()
+    if #validTargets == 0 then return end
+
+    -- Выбираем цель по приоритету (Amethyst, Ruby и т.д.)
+    local priorityNames1 = { "Amethyst", "Ruby", "Emerald", "Diamond" }
+    local priorityNames2 = { "d" }
+
+    local function findPriority(list, keywords)
+        for _, keyword in ipairs(keywords) do
+            for _, target in ipairs(list) do
+                if target.NPC.Name:find(keyword, 1, true) then
+                    return target
+                end
+            end
+        end
+        return nil
     end
 
-    -- Позиции для выстрела
-    local origin = getPlayerShootOrigin()
-    local direction = (targetPosition - origin).unit
+    local chosen = findPriority(validTargets, priorityNames1)
+        or findPriority(validTargets, priorityNames2)
 
-    -- Вызываем выстрел (The Eggsterminator)
+    -- Если нет приоритетной — случайная
+    if not chosen then
+        chosen = validTargets[math.random(1, #validTargets)]
+    end
+
+    local npc = chosen.NPC
+    local targetPart = chosen.Part
+    local origin = getShootOrigin()
+    local direction = (targetPart.Position - origin).Unit
+
+    -- Защита от NaN
+    if not direction or direction.Magnitude == 0 or tostring(direction) == "NaN, NaN, NaN" then
+        direction = Camera.CFrame.LookVector
+    end
+
+    -- 1. Выстрел: The Eggsterminator
     local shootArgs = {
         {
             A = LocalPlayer.Character,
             AN = "The Eggsterminator",
-            O = origin, -- Origin
-            D = direction, -- Direction
-            T = gun, -- The Eggsterminator tool
-            SP = origin, -- Shoot Position
-            HP = origin + Vector3.new(0, 1, 0), -- Hit Position (условно)
-            RS = origin -- Ray Start
+            O = origin,
+            D = direction,
+            T = gun,
+            SP = origin,
+            HP = targetPart.Position,
+            RS = origin
         }
     }
     MainAttackEvent:FireServer(unpack(shootArgs))
 
-    -- Сразу вызываем взрыв по NPC
+    -- 2. Взрыв: The EggsterminatorExplode
     spawn(function()
-        wait(0.1) -- небольшая задержка, чтобы сервер успел обработать выстрел
+        wait(0.1)
         local explodeArgs = {
             {
                 ALV = origin,
                 A = LocalPlayer.Character,
                 AN = "The EggsterminatorExplode",
-                EP = targetPosition
+                EP = targetPart.Position
             }
         }
         MainAttackEvent:FireServer(unpack(explodeArgs))
-        print(`Автовзрыв по NPC: {targetPosition}`)
+        print(`💥 Взрыв по {npc.Name} в {targetPart.Position}`)
     end)
 end
 
--- Запускаем авто-стрельбу с интервалом
-local AUTO_FIRE_RATE = 0.1 -- стреляем раз в 0.5 сек (можно уменьшить/увеличить)
+-- Цикл
 while true do
-    autoShoot()
-    wait(AUTO_FIRE_RATE)
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        pcall(autoShoot)
+    end
+    wait(0.1)
 end
