@@ -29,10 +29,30 @@ local function isDeadPart(part)
     return false
 end
 
--- 🔍 Получаем список NPC, по которым можно стрелять
-local function getValidTargets()
-    local validTargets = {}
-    if not NPCFolder then return validTargets end
+-- 🔍 Получаем ближайшего подходящего NPC
+local function getNearestValidTarget()
+    if not NPCFolder then return nil end
+
+    local closestTarget = nil
+    local closestDist = math.huge
+
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    local myPos = myHrp and myHrp.Position or Camera.CFrame.Position
+
+    -- Приоритетные имена
+    local priorityNames1 = { "Amethyst", "Ruby", "Emerald", "Diamond", "BULL" }
+    local priorityNames2 = { "Golden" }
+
+    -- Функция проверки приоритета
+    local function getPriority(npcName)
+        for _, name in ipairs(priorityNames1) do
+            if npcName:find(name, 1, true) then return 1 end
+        end
+        for _, name in ipairs(priorityNames2) do
+            if npcName:find(name, 1, true) then return 2 end
+        end
+        return 3 -- обычный
+    end
 
     for _, npc in ipairs(NPCFolder:GetChildren()) do
         if not npc:IsA("Model") then continue end
@@ -48,20 +68,33 @@ local function getValidTargets()
             continue
         end
 
-        -- Ищем HumanoidRootPart (или Torso / UpperTorso)
+        -- Ищем центральную часть
         local targetPart = npc:FindFirstChild("HumanoidRootPart")
             or npc:FindFirstChild("Torso")
             or npc:FindFirstChild("UpperTorso")
 
-        if targetPart and not isDeadPart(targetPart) then
-            table.insert(validTargets, {
+        if not targetPart or isDeadPart(targetPart) then
+            continue
+        end
+
+        -- Расстояние
+        local dist = (targetPart.Position - myPos).Magnitude
+
+        -- Приоритет + расстояние
+        local priority = getPriority(npc.Name)
+
+        -- Выбираем ближайший ИЛИ приоритетный
+        if dist < closestDist or (priority < (closestTarget and getPriority(closestTarget.NPC.Name) or 3)) then
+            closestDist = dist
+            closestTarget = {
                 NPC = npc,
-                Part = targetPart
-            })
+                Part = targetPart,
+                Priority = priority
+            }
         end
     end
 
-    return validTargets
+    return closestTarget
 end
 
 -- Позиция выстрела
@@ -77,35 +110,12 @@ local function autoShoot()
     local gun = getGun()
     if not gun then return end
 
-    -- Получаем валидные цели с живым HumanoidRootPart
-    local validTargets = getValidTargets()
-    if #validTargets == 0 then return end
+    -- Получаем ближайшую валидную цель
+    local target = getNearestValidTarget()
+    if not target then return end
 
-    -- Выбираем цель по приоритету (Amethyst, Ruby и т.д.)
-    local priorityNames1 = { "Amethyst", "Ruby", "Emerald", "Diamond" }
-    local priorityNames2 = { "d" }
-
-    local function findPriority(list, keywords)
-        for _, keyword in ipairs(keywords) do
-            for _, target in ipairs(list) do
-                if target.NPC.Name:find(keyword, 1, true) then
-                    return target
-                end
-            end
-        end
-        return nil
-    end
-
-    local chosen = findPriority(validTargets, priorityNames1)
-        or findPriority(validTargets, priorityNames2)
-
-    -- Если нет приоритетной — случайная
-    if not chosen then
-        chosen = validTargets[math.random(1, #validTargets)]
-    end
-
-    local npc = chosen.NPC
-    local targetPart = chosen.Part
+    local npc = target.NPC
+    local targetPart = target.Part
     local origin = getShootOrigin()
     local direction = (targetPart.Position - origin).Unit
 
@@ -114,7 +124,7 @@ local function autoShoot()
         direction = Camera.CFrame.LookVector
     end
 
-    -- 1. Выстрел: The Eggsterminator
+    -- 1. Выстрел
     local shootArgs = {
         {
             A = LocalPlayer.Character,
@@ -129,7 +139,7 @@ local function autoShoot()
     }
     MainAttackEvent:FireServer(unpack(shootArgs))
 
-    -- 2. Взрыв: The EggsterminatorExplode
+    -- 2. Взрыв
     spawn(function()
         wait(0.1)
         local explodeArgs = {
@@ -141,7 +151,7 @@ local function autoShoot()
             }
         }
         MainAttackEvent:FireServer(unpack(explodeArgs))
-        print(`💥 Взрыв по {npc.Name} в {targetPart.Position}`)
+        print(`🎯 Стреляем по {npc.Name} на расстоянии {math.floor((targetPart.Position - origin).Magnitude)} стадий`)
     end)
 end
 
@@ -150,5 +160,5 @@ while true do
     if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
         pcall(autoShoot)
     end
-    wait(0.1)
+    wait(0.01)
 end
