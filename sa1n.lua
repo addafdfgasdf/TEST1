@@ -21,7 +21,7 @@ local function getGun()
         and gameFolder.Folders.AccessoryFolder:FindFirstChild("The Eggsterminator")
 end
 
--- 🔍 Проверка: "живая" ли часть (не оторвана, не едят)
+-- Проверка: "живая" ли часть (не оторвана, не едят)
 local function isDeadPart(part)
     if not part or not part.Parent then return true end
     if not part:IsDescendantOf(Workspace) then return true end
@@ -29,7 +29,7 @@ local function isDeadPart(part)
     return false
 end
 
--- 🔍 Получаем ближайшего подходящего NPC
+-- Получаем ближайшего подходящего NPC
 local function getNearestValidTarget()
     if not NPCFolder then return nil end
 
