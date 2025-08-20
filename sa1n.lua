@@ -2,6 +2,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local UserInputService = game:GetService("UserInputService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
@@ -15,6 +16,10 @@ local NPCFolder = humanoidFolder and humanoidFolder:WaitForChild("NPCFolder", 5)
 local eventsFolder = ReplicatedStorage:WaitForChild("Events", 10)
 local MainAttackEvent = eventsFolder and eventsFolder:WaitForChild("MainAttack", 5)
 
+-- Состояние автострельбы
+local autoFireEnabled = false
+
+-- Пути к оружию
 local function getGun()
     return gameFolder and gameFolder:FindFirstChild("Folders") 
         and gameFolder.Folders:FindFirstChild("AccessoryFolder") 
@@ -105,6 +110,7 @@ end
 
 -- Основная функция
 local function autoShoot()
+    if not autoFireEnabled then return end
     if not LocalPlayer.Character or not MainAttackEvent then return end
 
     local gun = getGun()
@@ -155,10 +161,26 @@ local function autoShoot()
     end)
 end
 
--- Цикл
+-- Переключение автострельбы по Q
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.Q then
+        autoFireEnabled = not autoFireEnabled
+        local status = autoFireEnabled and "включена" or "выключена"
+        print("Автострельба " .. status)
+        -- Опционально: показ уведомления на экране
+        game.StarterGui:SetCore("SendNotification", {
+            Title = "Автострельба",
+            Text = "Автострельба " .. status,
+            Duration = 2
+        })
+    end
+end)
+
+-- Основной цикл
 while true do
-    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+    if autoFireEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
         pcall(autoShoot)
     end
-    wait(0.01)
+    wait(0.01) -- 100 раз в секунду
 end
