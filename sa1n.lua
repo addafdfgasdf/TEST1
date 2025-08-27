@@ -3,161 +3,172 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- === Кэширование (один раз при старте) ===
-local gameFolder = Workspace:FindFirstChild("#GAME") or Workspace:WaitForChild("#GAME", 10)
-if not gameFolder then return end
+-- Пути
+local gameFolder = Workspace:WaitForChild("#GAME", 10)
+local foldersFolder = gameFolder and gameFolder:WaitForChild("Folders", 5)
+local humanoidFolder = foldersFolder and foldersFolder:WaitForChild("HumanoidFolder", 5)
+local NPCFolder = humanoidFolder and humanoidFolder:WaitForChild("NPCFolder", 5)
 
-local NPCFolder = (((gameFolder:FindFirstChild("Folders")
-    and gameFolder.Folders:FindFirstChild("HumanoidFolder"))
-    and gameFolder.Folders.HumanoidFolder:FindFirstChild("NPCFolder")))
+local eventsFolder = ReplicatedStorage:WaitForChild("Events", 10)
+local MainAttackEvent = eventsFolder and eventsFolder:WaitForChild("MainAttack", 5)
 
-local MainAttackEvent = (ReplicatedStorage:FindFirstChild("Events")
-    and ReplicatedStorage.Events:FindFirstChild("MainAttack"))
-
-local AccessoryFolder = gameFolder:FindFirstChild("Folders")
-    and gameFolder.Folders:FindFirstChild("AccessoryFolder")
-
-local Gun = AccessoryFolder and AccessoryFolder:FindFirstChild("The Eggsterminator")
-
-if not (NPCFolder and MainAttackEvent and Gun) then
-    warn("Autofire: Не найдены ключевые объекты.")
-    return
-end
-
--- === Приоритеты (быстрый lookup) ===
-local PRIORITIES = {
-    Amethyst = 1, Ruby = 1, Emerald = 1, Diamond = 1, BULL = 1,
-    Golden = 2
-}
-
--- === Переменные состояния ===
+-- Состояние автострельбы
 local autoFireEnabled = false
-local lastShotTime = 0
-local SHOOT_COOLDOWN = 0.08 -- ~12 выстрелов/сек (как в оригинале)
 
--- === Утилиты ===
-local function isAlivePart(part)
-    return part
-        and part.Parent
-        and part:IsDescendantOf(Workspace)
-        and not part:GetAttribute("IsGettingEaten")
+-- Пути к оружию
+local function getGun()
+    return gameFolder and gameFolder:FindFirstChild("Folders") 
+        and gameFolder.Folders:FindFirstChild("AccessoryFolder") 
+        and gameFolder.Folders.AccessoryFolder:FindFirstChild("The Eggsterminator")
 end
 
-local function getOrigin()
-    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-    return hrp and hrp.Position + Vector3.new(0, 2, 0) or Camera.CFrame.Position
+-- Проверка: "живая" ли часть (не оторвана, не едят)
+local function isDeadPart(part)
+    if not part or not part.Parent then return true end
+    if not part:IsDescendantOf(Workspace) then return true end
+    if part:GetAttribute("IsGettingEaten") then return true end
+    return false
 end
 
--- === Поиск лучшей цели (оптимизировано: минимум вызовов, максимум скорости) ===
-local function getBestTarget()
-    local character = LocalPlayer.Character
-    local myHrp = character and character:FindFirstChild("HumanoidRootPart")
+-- Получаем ближайшего подходящего NPC
+local function getNearestValidTarget()
+    if not NPCFolder then return nil end
+
+    local closestTarget = nil
+    local closestDist = math.huge
+
+    local myHrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     local myPos = myHrp and myHrp.Position or Camera.CFrame.Position
 
-    local bestTarget = nil
-    local bestScore = 1/0 -- inf
+    -- Приоритетные имена
+    local priorityNames1 = { "Amethyst", "Ruby", "Emerald", "Diamond", "BULL" }
+    local priorityNames2 = { "Golden" }
 
-    local children = NPCFolder:GetChildren() -- кэшируем список
-    for i = 1, #children do
-        local npc = children[i]
+    -- Функция проверки приоритета
+    local function getPriority(npcName)
+        for _, name in ipairs(priorityNames1) do
+            if npcName:find(name, 1, true) then return 1 end
+        end
+        for _, name in ipairs(priorityNames2) do
+            if npcName:find(name, 1, true) then return 2 end
+        end
+        return 3 -- обычный
+    end
+
+    for _, npc in ipairs(NPCFolder:GetChildren()) do
         if not npc:IsA("Model") then continue end
 
-        local name = npc.Name
-        if name:sub(1, 4) == "Dead" or name == "CrackedBas" then
+        -- Игнорируем по имени
+        if string.find(npc.Name, "Dead", 1, true) or npc.Name == "CrackedBas" then
             continue
         end
 
+        -- Проверяем жив ли NPC
         local humanoid = npc:FindFirstChildOfClass("Humanoid")
-        if not humanoid or humanoid.Health <= 0 then continue end
+        if not humanoid or humanoid.Health <= 0 then
+            continue
+        end
 
+        -- Ищем центральную часть
         local targetPart = npc:FindFirstChild("HumanoidRootPart")
             or npc:FindFirstChild("Torso")
             or npc:FindFirstChild("UpperTorso")
 
-        if not targetPart or not isAlivePart(targetPart) then continue end
-
-        local dist = (targetPart.Position - myPos).Magnitude
-
-        -- Определяем приоритет
-        local priority = 3
-        for k, v in pairs(PRIORITIES) do
-            if name:find(k, 1, true) then
-                priority = v
-                break
-            end
+        if not targetPart or isDeadPart(targetPart) then
+            continue
         end
 
-        -- Лучше: меньше расстояние ИЛИ выше приоритет
-        local score = dist + priority * 50
-        if score < bestScore then
-            bestScore = score
-            bestTarget = targetPart
+        -- Расстояние
+        local dist = (targetPart.Position - myPos).Magnitude
+
+        -- Приоритет + расстояние
+        local priority = getPriority(npc.Name)
+
+        -- Выбираем ближайший ИЛИ приоритетный
+        if dist < closestDist or (priority < (closestTarget and getPriority(closestTarget.NPC.Name) or 3)) then
+            closestDist = dist
+            closestTarget = {
+                NPC = npc,
+                Part = targetPart,
+                Priority = priority
+            }
         end
     end
 
-    return bestTarget
+    return closestTarget
 end
 
--- === Один вызов для выстрела и взрыва ===
-local function shoot(targetPart)
-    local origin = getOrigin()
-    local dirVec = targetPart.Position - origin
-    if dirVec.Magnitude < 0.1 then return end
-    local direction = dirVec.Unit
+-- Позиция выстрела
+local function getShootOrigin()
+    local hrp = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    return hrp and hrp.Position + Vector3.new(0, 2, 0) or Camera.CFrame.Position
+end
 
-    -- Выстрел
-    MainAttackEvent:FireServer({
-        A = LocalPlayer.Character,
-        AN = "The Eggsterminator",
-        O = origin,
-        D = direction,
-        T = Gun,
-        SP = origin,
-        HP = targetPart.Position,
-        RS = origin
-    })
+-- Основная функция
+local function autoShoot()
+    if not autoFireEnabled then return end
+    if not LocalPlayer.Character or not MainAttackEvent then return end
 
-    -- Взрыв через 0.1 сек
-    task.delay(0.1, function()
-        MainAttackEvent:FireServer({
-            ALV = origin,
+    local gun = getGun()
+    if not gun then return end
+
+    -- Получаем ближайшую валидную цель
+    local target = getNearestValidTarget()
+    if not target then return end
+
+    local npc = target.NPC
+    local targetPart = target.Part
+    local origin = getShootOrigin()
+    local direction = (targetPart.Position - origin).Unit
+
+    -- Защита от NaN
+    if not direction or direction.Magnitude == 0 or tostring(direction) == "NaN, NaN, NaN" then
+        direction = Camera.CFrame.LookVector
+    end
+
+    -- 1. Выстрел
+    local shootArgs = {
+        {
             A = LocalPlayer.Character,
-            AN = "The EggsterminatorExplode",
-            EP = targetPart.Position
-        })
+            AN = "The Eggsterminator",
+            O = origin,
+            D = direction,
+            T = gun,
+            SP = origin,
+            HP = targetPart.Position,
+            RS = origin
+        }
+    }
+    MainAttackEvent:FireServer(unpack(shootArgs))
+
+    -- 2. Взрыв
+    spawn(function()
+        wait(0.1)
+        local explodeArgs = {
+            {
+                ALV = origin,
+                A = LocalPlayer.Character,
+                AN = "The EggsterminatorExplode",
+                EP = targetPart.Position
+            }
+        }
+        MainAttackEvent:FireServer(unpack(explodeArgs))
+        print(`Стреляем по {npc.Name} на расстоянии {math.floor((targetPart.Position - origin).Magnitude)} стадий`)
     end)
 end
 
--- === Основной цикл: 60 Гц через Heartbeat (плавно, без wait) ===
-RunService.Heartbeat:Connect(function()
-    if not autoFireEnabled then return end
-
-    local now = tick()
-    if now - lastShotTime < SHOOT_COOLDOWN then return end
-
-    local character = LocalPlayer.Character
-    local humanoid = character and character:FindFirstChild("Humanoid")
-    if not (character and humanoid and humanoid.Health > 0) then return end
-
-    local target = getBestTarget()
-    if not target then return end
-
-    pcall(shoot, target)
-    lastShotTime = now
-end)
-
--- === Переключение по Q ===
-UserInputService.InputBegan:Connect(function(input, processed)
-    if processed then return end
+-- Переключение автострельбы по Q
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
     if input.KeyCode == Enum.KeyCode.Q then
         autoFireEnabled = not autoFireEnabled
         local status = autoFireEnabled and "включена" or "выключена"
         print("Автострельба " .. status)
+        -- Опционально: показ уведомления на экране
         game.StarterGui:SetCore("SendNotification", {
             Title = "Автострельба",
             Text = "Автострельба " .. status,
@@ -165,3 +176,11 @@ UserInputService.InputBegan:Connect(function(input, processed)
         })
     end
 end)
+
+-- Основной цикл
+while true do
+    if autoFireEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
+        pcall(autoShoot)
+    end
+    wait(0.01) -- 100 раз в секунду
+end
