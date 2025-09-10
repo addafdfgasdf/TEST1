@@ -137,7 +137,7 @@ local function autoShoot()
             }
         }
         MainAttackEvent:FireServer(unpack(explodeArgs))
-        print(`Стреляем по {npc.Name} на расстоянии {math.floor((targetPart.Position - origin).Magnitude)} стадий`)
+        -- Логирование удалено: больше никаких print
     end)
 end
 
@@ -146,7 +146,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if input.KeyCode == Enum.KeyCode.Q then
         autoFireEnabled = not autoFireEnabled
         local status = autoFireEnabled and "включена" or "выключена"
-        print("Автострельба " .. status)
+        -- Убран print, оставлена только нотификация
         game.StarterGui:SetCore("SendNotification", {
             Title = "Автострельба",
             Text = "Автострельба " .. status,
@@ -154,7 +154,6 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
         })
     end
 end)
-
 
 while true do
     if autoFireEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid") then
